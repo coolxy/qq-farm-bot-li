@@ -11,12 +11,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: master
 
       - name: Sync Upstream
         uses: aormsby/Fork-Sync-With-Upstream-action@v3.4
         with:
           upstream_sync_repo: liyangpengs/qq-farm-bot
-          upstream_sync_branch: main
-          target_sync_branch: main
+          upstream_sync_branch: master
+          target_sync_branch: master
           target_repo_token: ${{ secrets.GITHUB_TOKEN }}
