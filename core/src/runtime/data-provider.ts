@@ -452,6 +452,26 @@ function createDataProvider(options: DataProviderOptions) {
                     a.runtimeState = a.running ? 'running' : 'stopped';
                     a.reloginAt = 0;
                 }
+                // 账本与真实连接对账：账本只由若干回调点写入，漏写或时序错位都会让
+                // 面板显示与实际不符（典型：账号已连上在跑，账本还是 offline）。
+                // 关键是要用「连接是否真的建立」而不是「进程是否存在」来判断——
+                // 进程可能还活着但连接早已确定失败（Code 为空时一直报「缺少一次性
+                // Code」，进程不退出）。只看进程会把这种死连接校正成「登录中」，
+                // 面板就一直转圈，永远等不到「已掉线·待补码」。
+                // 也必须在拿到真实 status 之后才校正：刚起进程时 worker.status 还是
+                // null，此时按「未连接」处理会让刚连上的账号闪一下掉线。
+                const hasStatus = !!(worker && worker.status && worker.status.connection);
+                const connected = hasStatus && !!worker.status.connection.connected;
+                if (hasStatus && runtime && runtime.state !== 'relogin_waiting') {
+                    if (connected && runtime.state !== 'running') {
+                        a.runtimeState = 'running';
+                        a.reloginAt = 0;
+                    }
+                    else if (!connected && runtime.state === 'running') {
+                        a.runtimeState = 'offline';
+                        a.reloginAt = 0;
+                    }
+                }
                 if (worker && worker.status && worker.status.status && worker.status.status.name) {
                     a.nick = worker.status.status.name;
                 }

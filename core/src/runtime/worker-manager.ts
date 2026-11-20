@@ -1,5 +1,9 @@
 export {};
 const { createScheduler } = require('../services/scheduler');
+// 账号运行状态的唯一账本。此前只有 wx-keepalive 会写，worker 生命周期（启动 /
+// 连上 / 进程退出 / 停止）一条都不写，于是账本里的 `offline` 会永久残留：
+// 用户补 Code 重登成功、进程明明已经在跑，面板却一直显示「已掉线」。
+const { setAccountRuntimeState, getAccountRuntimeState } = require('../services/account-runtime-state');
 
 const DEFAULT_API_CALL_TIMEOUT_MS = 10000;
 // 好友现场天气需要逐个 Enter/Leave，单批最多 5 位好友；
@@ -118,6 +122,9 @@ function createWorkerManager(options: WorkerManagerOptions) {
         if (workers[account.id]) return false;
 
         log('系统', `正在启动账号: ${account.name}`, { accountId: String(account.id), accountName: account.name });
+        // 进程已经在建连接了：立刻把「已掉线 / 等待重登」翻成「登录中」。
+        // 不写这一步，补 Code 重登期间面板会一直挂着旧的 offline。
+        setAccountRuntimeState(account.id, 'logging_in');
 
         let child: any = null;
         try {
@@ -194,6 +201,14 @@ function createWorkerManager(options: WorkerManagerOptions) {
             if (current && current.process === child) {
                 delete workers[account.id];
             }
+            // 进程没了，按「本次进程还没被判定为掉线/待重登」来收尾。
+            // 断开流程的顺序是：stopWorker → notifyOffline → 进程退出。如果这里把
+            // offline / relogin_waiting 也覆盖成「已停止」，用户就永远看不到
+            // 「已掉线·待补码」这个关键提示，只剩一个含糊的「已停止」。
+            // 所以 onlyFrom 只收 logging_in / running / stopping 三种「进程还活着」的状态。
+            setAccountRuntimeState(account.id, 'stopped', {
+                onlyFrom: ['logging_in', 'running', 'stopping'],
+            });
         });
         return true;
     }
@@ -204,6 +219,11 @@ function createWorkerManager(options: WorkerManagerOptions) {
 
         const proc = worker.process;
         worker.stopping = true;
+        // 正在退进程：面板该显示「停止中」，而不是把刚才的 running/offline 挂着不动。
+        // onlyFrom 排除 relogin_waiting——那条路径由保活自己管，不能被这里改掉。
+        setAccountRuntimeState(accountId, 'stopping', {
+            onlyFrom: ['logging_in', 'running', 'offline'],
+        });
         worker.process.send({ type: 'stop' });
         managerScheduler.setTimeoutTask(`force_kill_${accountId}`, 1000, () => {
             const current = workers[accountId];
@@ -307,6 +327,13 @@ function createWorkerManager(options: WorkerManagerOptions) {
 
             const connected = !!(msg.data && msg.data.connection && msg.data.connection.connected);
             if (connected) {
+                // 真的连上了：账本必须翻成「运行中」。这是修「在线却显示掉线」的关键一笔——
+                // 之前只有 wx-keepalive 会在掉线时写 offline，连回来却没人写回 running，
+                // 于是补 Code 成功、账号已正常跑，面板仍停在红色的「已掉线」。
+                const prev = getAccountRuntimeState(accountId);
+                if (!prev || prev.state !== 'running') {
+                    setAccountRuntimeState(accountId, 'running');
+                }
                 worker.disconnectedSince = 0;
                 worker.autoDeleteTriggered = false;
                 worker.wsError = null;
@@ -364,6 +391,17 @@ function createWorkerManager(options: WorkerManagerOptions) {
                 errorCode: workerError.code,
                 errorName: workerError.name,
             });
+            // 有些失败不发 account_disconnected，只报一条 error 就静默挂着
+            // （典型：Code 为空时「连接缺少一次性 Code」）。此前这里只打日志、
+            // 不动状态，账号就永久停在「登录中」——面板看起来像在转圈，
+            // 实际连接早就不可能建立。这类「起不来的错误」要如实落成已掉线。
+            const fatalConnectError = /缺少一次性\s*Code|没有可免扫码恢复的凭证|invalid.*code|code.*(?:expired|invalid)/i
+                .test(String(workerError.message || ''));
+            if (fatalConnectError) {
+                setAccountRuntimeState(accountId, 'offline', {
+                    onlyFrom: ['logging_in', 'running'],
+                });
+            }
         } else if (msg.type === 'ws_error') {
             const code = Number(msg.code) || 0;
             const message = msg.message || '';
