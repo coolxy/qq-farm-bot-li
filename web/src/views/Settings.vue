@@ -22,7 +22,7 @@ import { getPlatformClass, getPlatformLabel, useAccountStore } from '@/stores/ac
 import { useSettingStore } from '@/stores/setting'
 import { useStatusStore } from '@/stores/status'
 import { useUserStore } from '@/stores/user'
-import { getAccountRuntimeStatus, isAccountActive } from '@/utils/account-runtime'
+import { getAccountRuntimeStatus, isAccountActive, isAccountSafeToPurge } from '@/utils/account-runtime'
 import { getCredentialStatus, getWxPreflightBadge, getWxPreflightSummary } from '@/utils/credential-status'
 
 const fertilizerLandTypeOptions = [
@@ -145,8 +145,13 @@ function handleAccountAvatarError(account: any) {
     accountAvatarErrors.value.add(accountId)
 }
 
-const stoppedAccounts = computed(() => accounts.value.filter((acc: any) => !isAccountActive(acc)))
+// 「一键清理」只能动用户主动停用的账号。不能用 !isAccountActive：掉线待补码的
+// 账号 runtimeState=offline，那个表达式会把它们也算成「已停止」并批量删除。
+const stoppedAccounts = computed(() => accounts.value.filter((acc: any) => isAccountSafeToPurge(acc)))
 const stoppedAccountsCount = computed(() => stoppedAccounts.value.length)
+/** 掉线待补码的账号数：不进清理名单，但要在弹窗里点名，避免用户以为「都已停止」。 */
+const offlinePendingCount = computed(() => accounts.value.filter((acc: any) => acc.runtimeState === 'offline').length)
+const purgeTargetNames = computed(() => stoppedAccounts.value.map((acc: any) => acc.name || acc.qq || acc.id).slice(0, 8).join('、'))
 const wxAccountCount = computed(() => accounts.value.filter((acc: any) => acc.platform === 'wx').length)
 
 /** 账号运行态（含掉线重登倒计时）；旧接口没有 runtimeState 时回落到 running。 */
@@ -248,17 +253,23 @@ async function confirmClearStopped() {
   try {
     const stoppedIds = stoppedAccounts.value.map((acc: any) => acc.id)
     let deletedCount = 0
+    const failedNames: string[] = []
     for (const id of stoppedIds) {
       try {
         await accountStore.deleteAccount(id)
         deletedCount++
       }
-      catch (e) {
+      catch (e: any) {
+        // 后端会拦下「掉线待补码」的账号并返回 409。以前这里只 console.error，
+        // 界面照样弹「成功清理 N 个」，用户根本不知道有账号没删掉。
         console.error(`删除账号 ${id} 失败:`, e)
+        const target = stoppedAccounts.value.find((acc: any) => acc.id === id)
+        failedNames.push(`${target?.name || id}（${getApiErrorMessage(e, '删除失败')}）`)
       }
     }
     showClearStoppedConfirm.value = false
-    showAlert(`成功清理 ${deletedCount} 个已停止的账号`, 'primary')
+    const summary = `成功清理 ${deletedCount} 个已停止的账号`
+    showAlert(failedNames.length ? `${summary}，${failedNames.length} 个未删除：\n${failedNames.join('\n')}` : summary, failedNames.length ? 'danger' : 'primary')
     await accountStore.fetchAccounts()
   }
   finally {
@@ -1931,7 +1942,7 @@ async function handleResetSystemConfig() {
             :show="showClearStoppedConfirm"
             :loading="clearStoppedLoading"
             title="一键清理已停止账号"
-            :message="`确定要清理 ${stoppedAccountsCount} 个已停止的账号吗？此操作不可恢复！`"
+            :message="`确定要清理 ${stoppedAccountsCount} 个已停止的账号吗？此操作不可恢复！${purgeTargetNames ? `\n将被删除：${purgeTargetNames}${stoppedAccountsCount > 8 ? ' 等' : ''}` : ''}${offlinePendingCount > 0 ? `\n\n另有 ${offlinePendingCount} 个账号处于掉线待补码状态，已自动排除（补 Code 即可恢复，不会被删除）。` : ''}`"
             confirm-text="确认清理"
             type="danger"
             @close="!clearStoppedLoading && (showClearStoppedConfirm = false)"

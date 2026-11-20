@@ -300,9 +300,30 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
     app.delete('/api/accounts/:id', (req: Request, res: Response) => {
         try {
             const resolvedId = resolveAccId(ctx, req.params.id) || String(req.params.id || '');
+            const force = String(req.query.force || '').toLowerCase() === 'true';
 
             const before = ctx.provider.getAccounts();
             const target = findAccountByRef(before.accounts || [], req.params.id);
+            // 防误删闸门：掉线待补码（offline）不是「用户主动停用」，删掉它等于把
+            // 账号记录和 account-configs/<id>.json 一起抹掉，用户补 Code 时会发现
+            // 账号已不存在，不可恢复（真实事故：1919991430 在 2026-11-20 08:44:39
+            // 因 WS 400 掉线后进入 offline，随后被「一键清理」批量删除）。
+            // 这里直接读运行时状态，不信任前端传参；前端「一键清理」也已排除 offline。
+            if (target && !force) {
+                let runtimeState = '';
+                try {
+                    const { getAccountRuntimeState } = require('../../services/account-runtime-state');
+                    runtimeState = String(getAccountRuntimeState(target.id)?.state || '');
+                } catch { /* 状态模块不可用时不阻断删除 */ }
+                if (runtimeState === 'offline') {
+                    return res.status(409).json({
+                        ok: false,
+                        code: 'ACCOUNT_OFFLINE_PENDING',
+                        error: '该账号处于掉线待补码状态，删除会一并抹掉账号配置且不可恢复；确需删除请先停止账号，或带 force=true',
+                    });
+                }
+            }
+
             // 账号要被删掉，任何一条「等待重登」的定时器都必须先撤掉，
             // 否则到点它会用一个已经不存在的账号去换 Code 并把进程拉起来。
             try {
