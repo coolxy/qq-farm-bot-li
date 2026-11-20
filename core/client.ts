@@ -46,9 +46,22 @@ if (isWorkerProcess) {
         },
     });
 
+    // 「服务启动自动登录」是用户级开关，存在系统配置里（默认开启）。
+    // 这里必须读配置再传给 runtimeEngine，硬编码 false 会让面板上的开关完全失效：
+    // 配置能存能读、界面也显示「已开启」，但重启后账号一个都不会被拉起。
+    const { getSystemConfig } = require(`${baseDir}/models/store`);
+    const savedConfig = (() => {
+        try {
+            return getSystemConfig() || {};
+        }
+        catch {
+            return {};
+        }
+    })();
+
     runtimeEngine.start({
         startAdminServer: true,
-        autoStartAccounts: false,
+        autoStartAccounts: savedConfig.autoStartAccounts !== false,
     }).catch((err: any) => {
         mainLogger.error('runtime bootstrap failed', { error: err && err.message ? err.message : String(err) });
     });
