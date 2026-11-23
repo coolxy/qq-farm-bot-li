@@ -151,6 +151,18 @@ function createDataProvider(options: DataProviderOptions) {
         getFriends: (accountRef: string, forceSync = false) => callWorkerApi(resolveAccountRefId(accountRef), 'getFriends', forceSync, true),
         getFriendsCache: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getFriendsCache'),
         clearFriendsCache: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'clearFriendsCache'),
+        runInviteLinks: (accountRef: string, linksText?: string) => (
+            callWorkerApi(resolveAccountRefId(accountRef), 'runInviteLinks', linksText)
+        ),
+        getInviteProgress: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getInviteProgress'),
+        getFriendApplications: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getFriendApplications'),
+        acceptFriendApplications: (accountRef: string, gids: number[]) => (
+            callWorkerApi(resolveAccountRefId(accountRef), 'acceptFriendApplications', gids)
+        ),
+        getShareKey: (accountRef: string, shareCfgId = 0) => (
+            callWorkerApi(resolveAccountRefId(accountRef), 'getShareKey', shareCfgId)
+        ),
+        getInviteInfo: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getInviteInfo'),
         getInteractRecords: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getInteractRecords'),
         getFriendLands: (accountRef: string, gid: number) => callWorkerApi(resolveAccountRefId(accountRef), 'getFriendLands', gid, true),
         getFriendInteractionItems: (accountRef: string) => (

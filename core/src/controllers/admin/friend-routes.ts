@@ -59,6 +59,87 @@ function mountFriendRoutes(app: Application, ctx: AdminContext): void {
         }
     });
 
+    // 加友引擎：上传分享链接并立即执行（仅微信账号）
+    // body: { links: string } 或 { links: string[], replace?: boolean }
+    app.post('/api/friends/invite-links', async (req: Request, res: Response) => {
+        const id = getAccId(ctx, req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+
+        const raw = req.body && req.body.links;
+        const text = Array.isArray(raw) ? raw.join('\n') : String(raw || '');
+        if (!text.trim()) return res.status(400).json({ ok: false, error: 'links 不能为空' });
+
+        try {
+            const data = await ctx.provider.runInviteLinks(id, text);
+            res.json({ ok: true, data });
+        } catch (e: any) {
+            handleApiError(res, e);
+        }
+    });
+
+    // 加友引擎进度轮询
+    app.get('/api/friends/invite-progress', async (req: Request, res: Response) => {
+        const id = getAccId(ctx, req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        try {
+            const data = await ctx.provider.getInviteProgress(id);
+            res.json({ ok: true, data });
+        } catch (e: any) {
+            handleApiError(res, e);
+        }
+    });
+
+    // 好友申请列表（用于确认加友引擎是否真的送达）
+    app.get('/api/friends/applications', async (req: Request, res: Response) => {
+        const id = getAccId(ctx, req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        try {
+            const data = await ctx.provider.getFriendApplications(id);
+            res.json({ ok: true, data });
+        } catch (e: any) {
+            handleApiError(res, e);
+        }
+    });
+
+    // 同意好友申请（body: { gids: number[] }）
+    app.post('/api/friends/applications/accept', async (req: Request, res: Response) => {
+        const id = getAccId(ctx, req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        const gids = Array.isArray(req.body?.gids) ? req.body.gids : [];
+        if (!gids.length) return res.status(400).json({ ok: false, error: 'gids 不能为空' });
+        try {
+            const data = await ctx.provider.acceptFriendApplications(id, gids);
+            res.json({ ok: true, data });
+        } catch (e: any) {
+            handleApiError(res, e);
+        }
+    });
+
+    // 生成本账号的分享链接（加好友正向路径：对方点我的链接 -> 我收到申请 -> 自动同意）
+    app.get('/api/friends/share-key', async (req: Request, res: Response) => {
+        const id = getAccId(ctx, req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        const cfgId = Number.parseInt(String(req.query.shareCfgId || '0'), 10) || 0;
+        try {
+            const data = await ctx.provider.getShareKey(id, cfgId);
+            res.json({ ok: true, data });
+        } catch (e: any) {
+            handleApiError(res, e);
+        }
+    });
+
+    // 邀请关系列表（判断加友上报是否真的产生了邀请/好友）
+    app.get('/api/friends/invite-info', async (req: Request, res: Response) => {
+        const id = getAccId(ctx, req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        try {
+            const data = await ctx.provider.getInviteInfo(id);
+            res.json({ ok: true, data });
+        } catch (e: any) {
+            handleApiError(res, e);
+        }
+    });
+
     // 访客
     app.get('/api/interact-records', async (req: Request, res: Response) => {
         const id = getAccId(ctx, req);

@@ -40,3 +40,10 @@ export {
     getFriendsList,
     getFriendsListCacheOnly,
 } from './visit-strategy';
+
+export {
+    acceptFriends,
+    getApplications,
+    getShareKey,
+    rejectFriends,
+} from './api';

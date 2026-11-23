@@ -9,9 +9,9 @@ const { getLevelExpProgress, loadConfigs } = require('../config/gameConfig');
 const { getAutomation, getPreferredSeed, getConfigSnapshot, applyConfigSnapshot } = require('../models/store');
 const { checkAndClaimEmails, configureEmailClaim, getEmailDailyState } = require('../services/email');
 const { checkFarm, startFarmCheckLoop, stopFarmCheckLoop, refreshFarmCheckLoop, getLandsDetail, getAvailableSeeds, purchaseSeed, runFarmOperation, runFertilizerByConfig, fertilizeOwnLand } = require('../services/farm');
-const { checkFriends, startFriendCheckLoop, stopFriendCheckLoop, refreshFriendCheckLoop, getFriendsList, getFriendsListCacheOnly, getFriendLandsDetail, doFriendOperation, deleteFriend } = require('../services/friend');
+const { checkFriends, startFriendCheckLoop, stopFriendCheckLoop, refreshFriendCheckLoop, getFriendsList, getFriendsListCacheOnly, getFriendLandsDetail, doFriendOperation, deleteFriend, getApplications, acceptFriends, getShareKey } = require('../services/friend');
 const { getInteractRecords } = require('../services/interact');
-const { processInviteCodes } = require('../services/invite');
+const { processInviteCodes, runInviteLinks, getInviteProgress } = require('../services/invite');
 const { autoBuyFertilizer, checkAndBuyFertilizerBoth, buyFreeGifts, getFreeGiftDailyState } = require('../services/mall');
 const { performDailyMonthCardGift, getMonthCardDailyState } = require('../services/monthcard');
 const { performDailyVipGift, getVipDailyState } = require('../services/qqvip');
@@ -19,7 +19,7 @@ const { runExclusiveAutomationTask } = require('../services/automation-lock');
 const ranchAutomation = require('../services/ranch/automation');
 const { isRanchMarketEnabled, RANCH_MARKET_SWITCH_BY_CURRENCY } = require('../config/ranch-automation');
 const { createScheduler, getSchedulerRegistrySnapshot } = require('../services/scheduler');
-const { checkDailyShareStatus, getShareDailyState } = require('../services/share');
+const { checkDailyShareStatus, getShareDailyState, getInviteInfo } = require('../services/share');
 const { refreshActivityWindows } = require('../services/activity-windows');
 const { resetSessionGains, recordOperation, initStatsWithPersistence, saveStats } = require('../services/stats');
 const { initStatusBar, setStatusPlatform, statusData } = require('../services/status');
@@ -902,6 +902,10 @@ async function handleApiCall(msg: any): Promise<void> {
         if (method === 'applyRuntimeConfigSnapshot') {
             const appliedRevision = applyRuntimeConfig((args && args[0]) || {}, true);
             result = { appliedRevision };
+        } else if (method === 'getInviteProgress') {
+            // 进度是纯内存读取，不碰网络、不占独占锁；
+            // 放到锁内会与正在跑的长任务（runInviteLinks 数分钟）互斥，轮询必然超时。
+            result = getInviteProgress();
         } else {
             if (!isRunning || shutdownStarted || !loginReady) {
                 throw new Error('账号未连接');
@@ -955,6 +959,23 @@ async function handleApiCall(msg: any): Promise<void> {
                 case 'clearFriendsCache':
                     require('../services/friend').clearFriendsListCache();
                     result = { ok: true };
+                    break;
+                case 'runInviteLinks':
+                    // 加友引擎：手动触发分享链接加好友，不重启账号
+                    result = await runInviteLinks(args[0]);
+                    break;
+                case 'getFriendApplications':
+                    result = await getApplications();
+                    break;
+                case 'acceptFriendApplications':
+                    result = await acceptFriends(Array.isArray(args[0]) ? args[0] : []);
+                    break;
+                case 'getShareKey':
+                    result = await getShareKey(Number(args[0]) || 0);
+                    break;
+                case 'getInviteInfo':
+                    // 邀请关系列表：加友上报是否真的生效，以这里是否有记录为准
+                    result = await getInviteInfo();
                     break;
                 case 'getInteractRecords':
                     result = await getInteractRecords();

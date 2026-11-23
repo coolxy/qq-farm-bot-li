@@ -29,6 +29,7 @@ web/stats.html
 
 # Misc
 core/share.txt
+core/data/share/
 Update.log
 *.tgz
 *.tsbuildinfo

@@ -102,6 +102,23 @@ export async function getApplications(): Promise<any> {
     return types.GetApplicationsReply.decode(replyBody);
 }
 
+/**
+ * 获取本账号的分享 key / 分享链接。
+ * 加好友的正向路径是「别人点我的分享链接」→ 服务器给对方发好友申请
+ * → 我方收到 FriendApplicationReceivedNotify → 自动同意。
+ * share_cfg_id 为分享配置位，留空用服务端默认。
+ */
+export async function getShareKey(shareCfgId: number = 0): Promise<any> {
+    if (!types.GetShareKeyRequest || !types.GetShareKeyReply) {
+        throw new Error('GetShareKey 接口类型未加载');
+    }
+    const body: Uint8Array = types.GetShareKeyRequest.encode(types.GetShareKeyRequest.create({
+        share_cfg_id: toLong(shareCfgId),
+    })).finish();
+    const { body: replyBody } = await sendMsgAsync('gamepb.friendpb.FriendService', 'GetShareKey', body);
+    return types.GetShareKeyReply.decode(replyBody);
+}
+
 export async function delFriend(gid: number): Promise<any> {
     const numericGid: number = toNum(gid);
     if (!numericGid) throw new Error('无效的好友 GID');

@@ -16,6 +16,9 @@ const API_CALL_TIMEOUTS_MS: Record<string, number> = {
     scanWeatherFriends: 60000,
     getWeatherFriends: 30000,
     clearRanchIllustratedNew: 40000,
+    // 加友引擎：每条 2 秒节流，210 条约 7 分钟，预留到 30 分钟
+    runInviteLinks: 1800000,
+    getInviteProgress: 15000,
 };
 
 interface WorkerManagerOptions {

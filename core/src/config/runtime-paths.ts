@@ -32,8 +32,14 @@ function getDataFile(filename: string): string {
     return path.join(getDataDir(), filename);
 }
 
-function getShareFilePath(): string {
-    return path.join(getAppRootForWritable(), 'share.txt');
+function getShareFilePath(accountId?: string): string {
+    const root = getAppRootForWritable();
+    const accId = String(accountId || '').trim();
+    // 按账号隔离：多个微信账号同时在线时，各自只消费自己的邀请码，
+    // 避免 A 账号把 B 账号的 share.txt 抢走并在处理完后清空。
+    if (accId) return path.join(root, 'data', 'share', `${accId}.txt`);
+    // 兼容旧行为：未指定账号时沿用根目录 share.txt
+    return path.join(root, 'share.txt');
 }
 
 module.exports = {
