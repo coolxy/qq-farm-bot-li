@@ -12,21 +12,31 @@ const runningFromSource = /\.[cm]?tsx?$/.test(__filename);
 const distDir = path.join(__dirname, 'dist');
 const baseDir = !runningFromSource && fs.existsSync(distDir) ? './dist' : './src';
 
-const {
-    startAdminServer,
-    emitRealtimeStatus,
-    emitRealtimeLog,
-    emitRealtimeAccountLog,
-} = require(`${baseDir}/controllers/admin`);
-const { createRuntimeEngine } = require(`${baseDir}/runtime/runtime-engine`);
-const { createModuleLogger } = require(`${baseDir}/services/logger`);
-const mainLogger = createModuleLogger('main');
-
 // 打包后 worker 由当前可执行文件以 --worker 模式启动
 const isWorkerProcess: boolean = process.env.FARM_WORKER === '1';
 if (isWorkerProcess) {
     require(`${baseDir}/core/worker`);
 } else {
+    const { randomUUID } = require('node:crypto');
+    const { acquireExclusiveLock } = require('@qq-farm-bot/session-contract');
+    const { getRuntimePaths } = require(`${baseDir}/config/runtime-paths`);
+    const { runtimeDir } = getRuntimePaths();
+    const instanceId = randomUUID();
+    process.env.FARM_BACKEND_INSTANCE_ID = instanceId;
+    const writer = acquireExclusiveLock(path.join(runtimeDir, 'backend-writer.lock'), {
+        role: 'backend', instanceId, nonce: randomUUID(), releaseId: process.env.FARM_RELEASE_ID || 'dev',
+    }, { childRegistryPath: path.join(runtimeDir, 'backend-children.json') });
+    process.once('exit', () => writer.release());
+
+    const {
+        startAdminServer, stopAdminServer,
+        emitRealtimeStatus,
+        emitRealtimeLog,
+        emitRealtimeAccountLog,
+    } = require(`${baseDir}/controllers/admin`);
+    const { createRuntimeEngine } = require(`${baseDir}/runtime/runtime-engine`);
+    const { createModuleLogger } = require(`${baseDir}/services/logger`);
+    const mainLogger = createModuleLogger('main');
     const runtimeEngine = createRuntimeEngine({
         processRef: process,
         mainEntryPath: __filename,
@@ -46,6 +56,16 @@ if (isWorkerProcess) {
         },
     });
 
+    let closing = false;
+    const shutdown = async (exitCode = 0) => {
+        if (closing) return;
+        closing = true;
+        try { await Promise.all([stopAdminServer(), runtimeEngine.detachAllWorkers()]); }
+        finally { process.exit(exitCode); }
+    };
+    process.once('SIGINT', () => { void shutdown(); });
+    process.once('SIGTERM', () => { void shutdown(); });
+
     // 「服务启动自动登录」是用户级开关，存在系统配置里（默认开启）。
     // 这里必须读配置再传给 runtimeEngine，硬编码 false 会让面板上的开关完全失效：
     // 配置能存能读、界面也显示「已开启」，但重启后账号一个都不会被拉起。
@@ -64,5 +84,6 @@ if (isWorkerProcess) {
         autoStartAccounts: savedConfig.autoStartAccounts !== false,
     }).catch((err: any) => {
         mainLogger.error('runtime bootstrap failed', { error: err && err.message ? err.message : String(err) });
+        void shutdown(1);
     });
 }
