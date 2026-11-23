@@ -30,6 +30,9 @@ web/stats.html
 # Misc
 core/share.txt
 core/data/share/
+# getShareFilePath 在 data/share.txt 与 FARM_SHARE_FILE 都没出现时，
+# 基础路径会落到 core/share.txt，按账号隔离的派生目录就是 core/share/
+core/share/
 Update.log
 *.tgz
 *.tsbuildinfo
